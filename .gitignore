@@ -1,0 +1,14 @@
+.dosnap/
+bin/
+coverage.out
+*.test
+.env
+/AGENTS.md
+/CLAUDE.md
+/GEMINI.md
+/.agents/
+/.claude/
+/.codex/
+/.omo/
+/.opencode/
+/.debug-journal.md
