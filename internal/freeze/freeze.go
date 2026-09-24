@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jjw/docksnap/internal/engine"
 )
@@ -22,7 +23,9 @@ func PauseAll(ctx context.Context, eng engine.Engine, ids []string) ([]string, e
 			continue
 		}
 		if err := eng.Pause(ctx, id); err != nil {
-			return paused, errors.Join(fmt.Errorf("pause %s: %w", id, err), UnpauseAll(ctx, eng, paused))
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+			defer cancel()
+			return paused, errors.Join(fmt.Errorf("pause %s: %w", id, err), UnpauseAll(cleanupCtx, eng, paused))
 		}
 		paused = append(paused, id)
 	}
@@ -54,11 +57,13 @@ func StopAll(ctx context.Context, eng engine.Engine, ids []string) ([]string, er
 		}
 		if err := eng.Stop(ctx, id); err != nil {
 			var errs []error
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 			for _, sid := range stopped {
-				if serr := eng.Start(ctx, sid); serr != nil {
+				if serr := eng.Start(cleanupCtx, sid); serr != nil {
 					errs = append(errs, fmt.Errorf("start %s: %w", sid, serr))
 				}
 			}
+			cancel()
 			return stopped, errors.Join(fmt.Errorf("stop %s: %w", id, err), errors.Join(errs...))
 		}
 		stopped = append(stopped, id)
@@ -81,11 +86,13 @@ func StartAll(ctx context.Context, eng engine.Engine, ids []string) ([]string, e
 		}
 		if err := eng.Start(ctx, id); err != nil {
 			var errs []error
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 			for _, sid := range started {
-				if serr := eng.Stop(ctx, sid); serr != nil {
+				if serr := eng.Stop(cleanupCtx, sid); serr != nil {
 					errs = append(errs, fmt.Errorf("stop %s: %w", sid, serr))
 				}
 			}
+			cancel()
 			return started, errors.Join(fmt.Errorf("start %s: %w", id, err), errors.Join(errs...))
 		}
 		started = append(started, id)

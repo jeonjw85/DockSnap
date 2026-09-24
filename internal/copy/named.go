@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/jjw/docksnap/internal/engine"
 )
@@ -80,7 +81,9 @@ func withHelper(ctx context.Context, eng engine.Engine, volumeName string, fn fu
 		return fmt.Errorf("create helper %s: %w", volumeName, err)
 	}
 	defer func() {
-		rerr := eng.Remove(ctx, id)
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		rerr := eng.Remove(cleanupCtx, id)
 		if rerr != nil {
 			err = errors.Join(err, fmt.Errorf("remove helper %s: %w", volumeName, rerr))
 		}

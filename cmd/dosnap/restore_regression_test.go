@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_runRestore_restarts_running_containers_when_volume_copy_fails(t *testing.T) {
+func Test_runRestore_rejects_corrupt_snapshot_before_stopping_containers(t *testing.T) {
 	ctx := context.Background()
 	f, cwd := setupProj(t, true)
 	require.NoError(t, runSave(ctx, "seed1", io.Discard))
@@ -23,8 +23,6 @@ func Test_runRestore_restarts_running_containers_when_volume_copy_fails(t *testi
 	err := runRestore(ctx, "seed1", io.Discard)
 
 	require.Error(t, err)
-	stop := callIndex(f.Calls(), "Stop:db1")
-	start := callIndex(f.Calls(), "Start:db1")
-	require.GreaterOrEqual(t, stop, 0)
-	require.Greater(t, start, stop)
+	require.Equal(t, -1, callIndex(f.Calls(), "Stop:db1"))
+	require.Equal(t, []byte("hello"), f.Blob("proj_pgdata"))
 }

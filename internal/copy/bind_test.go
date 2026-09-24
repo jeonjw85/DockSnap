@@ -68,3 +68,69 @@ func Test_RestoreBind_overwrites_and_deletes_extras_when_rsync_absent(t *testing
 	require.NoError(t, err)
 	require.Equal(t, []byte("k"), keep)
 }
+
+func Test_Bind_roundtrips_files_when_rsync_absent(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	src := filepath.Join(t.TempDir(), "config.yml")
+	snapshot := filepath.Join(t.TempDir(), "tree")
+	dest := filepath.Join(t.TempDir(), "config.yml")
+	require.NoError(t, os.WriteFile(src, []byte("saved"), 0o640))
+	require.NoError(t, copy.SaveBind(context.Background(), src, snapshot))
+	require.NoError(t, os.WriteFile(dest, []byte("dirty"), 0o600))
+
+	require.NoError(t, copy.RestoreBind(context.Background(), snapshot, dest))
+
+	got, err := os.ReadFile(dest)
+	require.NoError(t, err)
+	require.Equal(t, []byte("saved"), got)
+	info, err := os.Stat(dest)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o640), info.Mode().Perm())
+}
+
+func Test_Bind_roundtrips_symlinks_when_rsync_absent(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	src := t.TempDir()
+	snapshot := t.TempDir()
+	dest := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(src, "target-dir"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(src, "target-dir", "file"), []byte("saved"), 0o644))
+	require.NoError(t, os.Symlink("target-dir", filepath.Join(src, "dir-link")))
+	require.NoError(t, os.Symlink("missing-target", filepath.Join(src, "broken-link")))
+
+	require.NoError(t, copy.SaveBind(context.Background(), src, snapshot))
+	require.NoError(t, copy.RestoreBind(context.Background(), snapshot, dest))
+
+	for name, target := range map[string]string{"dir-link": "target-dir", "broken-link": "missing-target"} {
+		got, err := os.Readlink(filepath.Join(dest, name))
+		require.NoError(t, err)
+		require.Equal(t, target, got)
+	}
+	got, err := os.ReadFile(filepath.Join(dest, "dir-link", "file"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("saved"), got)
+}
+
+func Test_SaveBind_copies_read_only_directories_when_rsync_absent(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	src := t.TempDir()
+	dest := t.TempDir()
+	locked := filepath.Join(src, "locked")
+	require.NoError(t, os.Mkdir(locked, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(locked, "data"), []byte("saved"), 0o644))
+	require.NoError(t, os.Chmod(locked, 0o555))
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+
+	require.NoError(t, copy.SaveBind(context.Background(), src, dest))
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(dest, "locked"), 0o755) })
+
+	info, err := os.Stat(filepath.Join(dest, "locked"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o555), info.Mode().Perm())
+	fileInfo, err := os.Stat(filepath.Join(dest, "locked", "data"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o644), fileInfo.Mode().Perm())
+	got, err := os.ReadFile(filepath.Join(dest, "locked", "data"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("saved"), got)
+}

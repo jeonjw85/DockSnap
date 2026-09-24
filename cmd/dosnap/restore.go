@@ -60,6 +60,10 @@ func runRestore(ctx context.Context, rawTag string, out io.Writer) (err error) {
 	if proj.Name != meta.Project.Name || proj.WorkingDir != meta.Project.WorkingDir {
 		return fmt.Errorf("project mismatch: %s %s", meta.Project.Name, meta.Project.WorkingDir)
 	}
+	snap := filepath.Join(cwd, ".dosnap", "snapshots", tag.String())
+	if err := verifySnapshot(snap, meta); err != nil {
+		return err
+	}
 	running, err := runningIDs(ctx, eng, proj.Containers)
 	if err != nil {
 		return err
@@ -67,12 +71,13 @@ func runRestore(ctx context.Context, rawTag string, out io.Writer) (err error) {
 	if _, err := freeze.StopAll(ctx, eng, running); err != nil {
 		return err
 	}
-	snap := filepath.Join(cwd, ".dosnap", "snapshots", tag.String())
 	restoreErr := inspectNamed(ctx, eng, meta)
 	if restoreErr == nil {
 		restoreErr = restoreVolumes(ctx, eng, snap, meta)
 	}
-	_, startErr := freeze.StartAll(ctx, eng, running)
+	cleanupCtx, cancel := cleanupContext(ctx)
+	_, startErr := freeze.StartAll(cleanupCtx, eng, running)
+	cancel()
 	if err := errors.Join(restoreErr, startErr); err != nil {
 		return err
 	}

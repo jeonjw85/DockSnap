@@ -9,6 +9,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type cancelAfterPause struct {
+	engine.Engine
+	cancel context.CancelFunc
+}
+
+func (e cancelAfterPause) Pause(ctx context.Context, id string) error {
+	err := e.Engine.Pause(ctx, id)
+	if err == nil {
+		e.cancel()
+	}
+	return err
+}
+
 func Test_PauseAll_pauses_three_running_ids(t *testing.T) {
 	ctx := context.Background()
 	f := engine.NewFake()
@@ -37,6 +50,24 @@ func Test_PauseAll_unpauses_prior_when_second_fails(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "c2")
 	require.Equal(t, []string{"Pause:c1", "Unpause:c1"}, f.Calls())
+}
+
+func Test_PauseAll_unpauses_prior_after_context_cancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	f := engine.NewFake()
+	f.AddContainer(engine.Container{ID: "c1", Running: true})
+	f.AddContainer(engine.Container{ID: "c2", Running: true})
+	eng := cancelAfterPause{Engine: f, cancel: cancel}
+
+	_, err := freeze.PauseAll(ctx, eng, []string{"c1", "c2"})
+
+	require.Error(t, err)
+	containers, listErr := f.ContainerList(context.Background(), engine.ListOptions{All: true})
+	require.NoError(t, listErr)
+	for _, c := range containers {
+		require.False(t, c.Paused, c.ID)
+	}
+	require.Contains(t, f.Calls(), "Unpause:c1")
 }
 
 func Test_PauseAll_skips_already_paused(t *testing.T) {

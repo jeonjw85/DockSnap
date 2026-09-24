@@ -59,7 +59,9 @@ func runSave(ctx context.Context, rawTag string, out io.Writer) (err error) {
 		return err
 	}
 	defer func() {
-		err = errors.Join(err, freeze.UnpauseAll(ctx, eng, paused))
+		cleanupCtx, cancel := cleanupContext(ctx)
+		defer cancel()
+		err = errors.Join(err, freeze.UnpauseAll(cleanupCtx, eng, paused))
 	}()
 	start := time.Now()
 	st := store.New(cwd)
@@ -99,6 +101,10 @@ func runSave(ctx context.Context, rawTag string, out io.Writer) (err error) {
 	committed = true
 	fmt.Fprintf(out, "%s\n", formatLine(tag.String(), len(volumes), total, time.Since(start)))
 	return nil
+}
+
+func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 }
 
 func saveVolume(ctx context.Context, eng engine.Engine, tmp string, vol project.Volume) (store.VolumeMeta, error) {
